@@ -91,6 +91,7 @@ You may paste credentials into the constants at the top of sftp_server.py, or se
 
 - Use a bucket-scoped R2 API token with Object Read & Write permissions.
 - SFTP encrypts authentication and file transfer through SSH. Keep the host key file persistent to prevent fingerprint changes.
+- If the configured `HOST_KEY_PATH` is read-only (for example, `/data` on some hosts), the server logs a warning and falls back to `TMP_DIR/ssh_host_rsa_key`. The fallback path must be writable. On hosts with ephemeral temporary storage, the SSH fingerprint can change after restarts; use a writable persistent volume and set `HOST_KEY_PATH` to that volume when your provider supports one.
 - Folder names are represented by R2 key prefixes and optional zero-byte directory markers. R2 does not natively store POSIX owners, groups, permissions, or symbolic links; chmod/utime requests are accepted as no-ops and symlinks are unsupported.
 - Uploads need temporary disk space approximately equal to the file being written. Reads use ranged R2 requests, avoiding a full local download for each read session.
 - Renaming a folder copies its objects to the new prefix and then deletes the originals, so a folder rename is not atomic. Avoid modifying that folder concurrently during rename.
