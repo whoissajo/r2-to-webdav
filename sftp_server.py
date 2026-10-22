@@ -57,7 +57,7 @@ SFTP_PASSWORD = "CHANGE_THIS_TO_A_LONG_RANDOM_PASSWORD"
 HOST = "0.0.0.0"
 PORT = 2222
 TMP_DIR = "/tmp/r2-sftp"
-HOST_KEY_PATH = "/data/ssh_host_rsa_key"
+HOST_KEY_PATH = "/tmp/r2-sftp/ssh_host_rsa_key"
 MAX_UPLOAD_MB = 0              # 0 = unlimited; free temporary disk is still required.
 MAX_DIRECTORY_ENTRIES = 10000
 LOG_LEVEL = "INFO"
@@ -676,17 +676,52 @@ class ReportingSFTPServer(paramiko.SFTPServer):
         self._send_status(request_number, SFTP_FAILURE)
 
 
-def load_or_create_host_key(path: str):
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    if os.path.isfile(path):
-        return paramiko.RSAKey.from_private_key_file(path)
-    key = paramiko.RSAKey.generate(3072)
-    key.write_private_key_file(path)
-    os.chmod(path, 0o600)
-    LOG.warning("Generated a new SSH host key at %s; persist this file to keep client fingerprints stable", path)
-    return key
+def load_or_create_host_key(path: str, fallback_dir: Optional[str] = None):
+    """Load or create an SSH host key, falling back if the configured path is read-only.
+
+    Docker uses /data (a persistent volume). Hosting platforms that mount the
+    root filesystem read-only can use TMP_DIR instead. On ephemeral hosts, the
+    key may change after a restart unless HOST_KEY_PATH points at persistent,
+    writable storage.
+    """
+    candidates = [path]
+    if fallback_dir:
+        fallback = os.path.join(fallback_dir, "ssh_host_rsa_key")
+        if os.path.abspath(fallback) != os.path.abspath(path):
+            candidates.append(fallback)
+
+    last_error = None
+    for index, candidate in enumerate(candidates):
+        try:
+            directory = os.path.dirname(candidate)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            if os.path.isfile(candidate):
+                return paramiko.RSAKey.from_private_key_file(candidate)
+
+            key = paramiko.RSAKey.generate(3072)
+            key.write_private_key_file(candidate)
+            os.chmod(candidate, 0o600)
+            LOG.warning(
+                "Generated a new SSH host key at %s; persist this file to keep client fingerprints stable",
+                candidate,
+            )
+            return key
+        except OSError as exc:
+            last_error = exc
+            if index + 1 < len(candidates):
+                LOG.warning(
+                    "Cannot use SSH host key path %s (%s); trying writable fallback %s",
+                    candidate,
+                    exc,
+                    candidates[index + 1],
+                )
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Could not load or create an SSH host key")
 
 
 def serve_client(client_socket, client_address, cfg: Settings, host_key, s3):
@@ -721,7 +756,7 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     os.makedirs(cfg.tmp_dir, exist_ok=True)
-    host_key = load_or_create_host_key(cfg.host_key_path)
+    host_key = load_or_create_host_key(cfg.host_key_path, cfg.tmp_dir)
     s3 = make_s3_client(cfg)
 
     # Fail early rather than accepting logins that cannot reach the bucket.
