@@ -92,6 +92,27 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
+## Single-file mode (credentials inside Python)
+
+If you prefer one Python file rather than environment variables and Docker, use [standalone_webdav.py](./standalone_webdav.py). It contains the WebDAV implementation and all settings in the same file.
+
+1. Install Python 3.10+ and the dependencies:
+
+   ```bash
+   python -m pip install aiohttp boto3 botocore defusedxml
+   ```
+
+2. Open standalone_webdav.py and edit the configuration constants near the top: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, WEBDAV_USERNAME, and WEBDAV_PASSWORD.
+3. Run it:
+
+   ```bash
+   python standalone_webdav.py
+   ```
+
+4. Connect to http://YOUR_SERVER:8080/ with the WebDAV username and password you configured. Use HTTPS via a reverse proxy before exposing it publicly.
+
+The file deliberately contains placeholders rather than real keys. Avoid committing your actual R2 secret key or WebDAV password to GitHub; if credentials are exposed, revoke and replace them.
+
 ## Run without Docker
 
 ```bash
