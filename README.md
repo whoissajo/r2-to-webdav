@@ -52,6 +52,49 @@ Use the credentials configured in `.env`, not the example values above.
 
 On Android, add a WebDAV/WebDAVS connection in your file manager or media app. Use HTTPS in production. If you terminate TLS at a reverse proxy, forward WebDAV methods and headers (`Destination`, `Depth`, `Overwrite`, `If`, `Lock-Token`, `Timeout`, `Range`, and `Authorization`) and allow large request bodies/long uploads.
 
+## SFTP server backed by the same R2 bucket
+
+The SFTP service is separate from WebDAV: it uses SSH/SFTP on TCP port 2222 and can be deployed independently. It reads and writes the configured R2 bucket directly. Reads are fetched using byte ranges; uploads are staged on temporary disk and sent to R2 when the client closes the file.
+
+### Docker Compose
+
+1. Copy the SFTP environment template:
+
+   ```bash
+   cp .env.sftp.example .env.sftp
+   ```
+
+2. Edit .env.sftp with the R2 credentials, a username, and a strong password.
+3. Start only the SFTP service:
+
+   ```bash
+   docker compose -f docker-compose.sftp.yml up -d --build
+   docker compose -f docker-compose.sftp.yml logs -f
+   ```
+
+4. Connect your SFTP client to sftp://YOUR_SERVER_IP:2222 using the configured username and password.
+
+The Docker Compose configuration has its own container, port, dependencies, and persistent SSH host-key volume; it does not alter the WebDAV service. Keep the /data volume between restarts so clients see the same SSH host fingerprint. This server requires a host/provider that supports inbound TCP connections; HTTP-only platforms cannot expose SFTP.
+
+### Run directly with Python
+
+Install the SFTP-only dependencies and start the single-file server:
+
+```bash
+python -m pip install -r requirements-sftp.txt
+python sftp_server.py
+```
+
+You may paste credentials into the constants at the top of sftp_server.py, or set the matching environment variables. Environment variables take precedence over constants. Required settings are R2_ACCOUNT_ID (or R2_ENDPOINT_URL), R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, SFTP_USERNAME, and SFTP_PASSWORD. The password must be at least 12 characters.
+
+### SFTP notes
+
+- Use a bucket-scoped R2 API token with Object Read & Write permissions.
+- SFTP encrypts authentication and file transfer through SSH. Keep the host key file persistent to prevent fingerprint changes.
+- Folder names are represented by R2 key prefixes and optional zero-byte directory markers. R2 does not natively store POSIX owners, groups, permissions, or symbolic links; chmod/utime requests are accepted as no-ops and symlinks are unsupported.
+- Uploads need temporary disk space approximately equal to the file being written. Reads use ranged R2 requests, avoiding a full local download for each read session.
+- Renaming a folder copies its objects to the new prefix and then deletes the originals, so a folder rename is not atomic. Avoid modifying that folder concurrently during rename.
+
 ## Environment variables
 
 | Variable | Required | Default | Meaning |
