@@ -459,7 +459,7 @@ class R2WebDAV:
         if not key:
             raise web.HTTPForbidden(text="Cannot replace the bucket root")
         if is_collection:
-            key = key.rstrip("/")
+            raise web.HTTPConflict(text="PUT target must not end with a slash")
         self.check_write_lock(request, key)
         if request.headers.get("If-None-Match") == "*" and await self.path_exists(key, False):
             raise web.HTTPPreconditionFailed(text="Resource already exists")
@@ -474,6 +474,8 @@ class R2WebDAV:
         if limit and content_length is not None and content_length > limit:
             raise web.HTTPRequestEntityTooLarge(max_size=limit, actual_size=content_length)
         old_meta = await self.head_object(key)
+        if old_meta is None and await self.path_exists(key, True):
+            raise web.HTTPConflict(text="A collection already exists at this path")
         content_type = request.headers.get("Content-Type") or mimetypes.guess_type(key)[0] or "application/octet-stream"
         temp_path = None
         size = 0
@@ -588,6 +590,8 @@ class R2WebDAV:
         self.check_write_lock(request, dst_key)
         overwrite = request.headers.get("Overwrite", "T").upper() != "F"
         dst_exists = await self.path_exists(dst_key, dst_collection)
+        if dst_collection and await self.head_object(dst_key) is not None:
+            dst_exists = True
         if dst_exists and not overwrite:
             raise web.HTTPPreconditionFailed(text="Destination already exists and Overwrite is F")
         # An overwrite replaces the destination resource, including stale children.
