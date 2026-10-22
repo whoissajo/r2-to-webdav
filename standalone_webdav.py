@@ -459,7 +459,7 @@ class R2WebDAV:
                 + '📄 ' + html.escape(name) + '</a><span>' + f'{size:,} bytes' + '</span></li>'
             )
         title = "/" + prefix
-        body = "\\n".join(rows) if rows else '<li class="empty">This directory is empty.</li>'
+        body = "\n".join(rows) if rows else '<li class="empty">This directory is empty.</li>'
         page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
