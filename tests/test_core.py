@@ -167,6 +167,15 @@ async def test_put_get_range_propfind_and_mkcol_delete(tmp_path):
         uploaded = await client.put("/hello.txt", data=b"hello world", headers=auth)
         assert uploaded.status == 201
 
+        head_root = await client.head("/", headers=auth)
+        assert head_root.status == 200
+        assert head_root.headers["DAV"] == "1, 2"
+        assert "PROPFIND" in head_root.headers["Allow"]
+
+        browser_root = await client.get("/", headers=auth)
+        assert browser_root.status == 200
+        assert "hello.txt" in await browser_root.text()
+
         partial = await client.get("/hello.txt", headers={**auth, "Range": "bytes=1-4"})
         assert partial.status == 206
         assert await partial.read() == b"ello"
