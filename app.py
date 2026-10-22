@@ -244,7 +244,11 @@ class R2WebDAV:
         children: dict[str, dict[str, Any]] = {}
         paginator = self.s3.get_paginator("list_objects_v2")
         # Delimiter makes the response a single directory level, as WebDAV Depth: 1 requires.
-        for page in paginator.paginate(Bucket=self.settings.bucket_name, Prefix=prefix, Delimiter="/"):
+        pages = iter(paginator.paginate(Bucket=self.settings.bucket_name, Prefix=prefix, Delimiter="/"))
+        while True:
+            page = await self.io(next, pages, None)
+            if page is None:
+                break
             for item in page.get("Contents", []):
                 child_key = item.get("Key", "")
                 if child_key == prefix or not child_key:
@@ -271,7 +275,11 @@ class R2WebDAV:
         prefix = key.rstrip("/") + "/"
         paginator = self.s3.get_paginator("list_objects_v2")
         batch: list[dict[str, str]] = []
-        for page in paginator.paginate(Bucket=self.settings.bucket_name, Prefix=prefix):
+        pages = iter(paginator.paginate(Bucket=self.settings.bucket_name, Prefix=prefix))
+        while True:
+            page = await self.io(next, pages, None)
+            if page is None:
+                break
             for item in page.get("Contents", []):
                 batch.append({"Key": item["Key"]})
                 if len(batch) == 1000:
@@ -608,7 +616,11 @@ class R2WebDAV:
             dst_prefix = dst_key.rstrip("/") + "/"
             paginator = self.s3.get_paginator("list_objects_v2")
             copied_any = False
-            for page in paginator.paginate(Bucket=self.settings.bucket_name, Prefix=src_prefix):
+            pages = iter(paginator.paginate(Bucket=self.settings.bucket_name, Prefix=src_prefix))
+            while True:
+                page = await self.io(next, pages, None)
+                if page is None:
+                    break
                 for item in page.get("Contents", []):
                     old_key = item["Key"]
                     relative = old_key[len(src_prefix):]
