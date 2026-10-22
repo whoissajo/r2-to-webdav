@@ -68,8 +68,8 @@ The SFTP service is separate from WebDAV: it uses SSH/SFTP on TCP port 2222 and 
 3. Start only the SFTP service:
 
    ```bash
-   docker compose -f docker-compose.sftp.yml up -d --build
-   docker compose -f docker-compose.sftp.yml logs -f
+   docker compose --env-file .env.sftp -f docker-compose.sftp.yml up -d --build
+   docker compose --env-file .env.sftp -f docker-compose.sftp.yml logs -f
    ```
 
 4. Connect your SFTP client to sftp://YOUR_SERVER_IP:2222 using the configured username and password.
