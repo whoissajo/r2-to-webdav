@@ -1,0 +1,27 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOST=0.0.0.0 \
+    PORT=2222 \
+    TMP_DIR=/tmp/r2-sftp \
+    HOST_KEY_PATH=/data/ssh_host_rsa_key
+
+WORKDIR /app
+
+COPY requirements-sftp.txt /app/requirements-sftp.txt
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r /app/requirements-sftp.txt
+
+COPY sftp_server.py /app/sftp_server.py
+
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sftpapp \
+    && mkdir -p /data /tmp/r2-sftp \
+    && chown -R sftpapp:sftpapp /app /data /tmp/r2-sftp
+
+USER sftpapp
+
+EXPOSE 2222
+VOLUME ["/data", "/tmp/r2-sftp"]
+
+CMD ["python", "-u", "/app/sftp_server.py"]
