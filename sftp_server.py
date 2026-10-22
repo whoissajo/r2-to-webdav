@@ -28,6 +28,7 @@ import paramiko
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
+from paramiko.sftp import CMD_CLOSE
 from paramiko import (
     SFTPAttributes,
     SFTP_FAILURE,
@@ -238,6 +239,9 @@ class R2ReadHandle(paramiko.SFTPHandle):
     def stat(self):
         return attr_for(name=None, is_dir=False, size=self.size, modified=self.modified)
 
+    def chattr(self, attr):
+        return SFTP_OK
+
 
 class R2WriteHandle(paramiko.SFTPHandle):
     """Stage a writable file on disk and upload it to R2 when the client closes it."""
@@ -277,6 +281,9 @@ class R2WriteHandle(paramiko.SFTPHandle):
                 LOG.warning("Could not stage SFTP write for %s: %s", self.key, exc)
                 self.failed = True
                 return error_status(exc)
+
+    def chattr(self, attr):
+        return SFTP_OK
 
     def stat(self):
         try:
@@ -638,6 +645,37 @@ class R2SFTPInterface(paramiko.SFTPServerInterface):
         return SFTP_OP_UNSUPPORTED
 
 
+class ReportingSFTPServer(paramiko.SFTPServer):
+    """Return the actual upload result for CLOSE instead of unconditional success.
+
+    Paramiko's default server implementation closes a file handle and responds
+    with success regardless of the handle's close result. Uploads to R2 happen
+    at close time, so preserve that result for clients that check it.
+    """
+
+    def _process(self, packet_type, request_number, msg):
+        if packet_type != CMD_CLOSE:
+            return super()._process(packet_type, request_number, msg)
+
+        handle = msg.get_binary()
+        if handle in self.folder_table:
+            self.folder_table.pop(handle, None)
+            self._send_status(request_number, SFTP_OK)
+            return
+        if handle in self.file_table:
+            file_handle = self.file_table.pop(handle)
+            try:
+                result = file_handle.close()
+            except Exception:
+                LOG.exception("SFTP handle close failed")
+                result = SFTP_FAILURE
+            if not isinstance(result, int):
+                result = SFTP_OK
+            self._send_status(request_number, result)
+            return
+        self._send_status(request_number, SFTP_FAILURE)
+
+
 def load_or_create_host_key(path: str):
     directory = os.path.dirname(path)
     if directory:
@@ -657,7 +695,7 @@ def serve_client(client_socket, client_address, cfg: Settings, host_key, s3):
         transport = paramiko.Transport(client_socket)
         transport.add_server_key(host_key)
         transport.set_subsystem_handler(
-            "sftp", paramiko.SFTPServer, R2SFTPInterface, cfg, s3
+            "sftp", ReportingSFTPServer, R2SFTPInterface, cfg, s3
         )
         transport.start_server(server=PasswordAuth(cfg))
         while transport.is_active():
