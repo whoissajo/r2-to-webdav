@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.sftp.example
 .venv/
 venv/
 __pycache__/
