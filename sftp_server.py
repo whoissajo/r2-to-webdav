@@ -247,6 +247,7 @@ class R2WriteHandle(paramiko.SFTPHandle):
         self.s3 = s3
         self.cfg = cfg
         self.key = key
+        self.open_flags = flags
         self.writefile = file_obj
         self.existed = existed
         self.failed = False
@@ -258,7 +259,7 @@ class R2WriteHandle(paramiko.SFTPHandle):
             if self.failed or self.closed:
                 return SFTP_FAILURE
             try:
-                if self.flags & os.O_APPEND:
+                if self.open_flags & os.O_APPEND:
                     self.writefile.seek(0, os.SEEK_END)
                 else:
                     self.writefile.seek(offset)
