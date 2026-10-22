@@ -9,6 +9,7 @@ import asyncio
 import base64
 import binascii
 import hmac
+import html
 import logging
 import mimetypes
 import os
@@ -389,10 +390,85 @@ class R2WebDAV:
         item = await self.prop_response(key, is_dir, meta)
         root.append(item)
 
+    def collection_head_response(self) -> web.Response:
+        """Answer collection HEAD probes without trying to stream a directory as a file."""
+        return web.Response(
+            status=200,
+            headers={
+                "Allow": ALLOW,
+                "DAV": "1, 2",
+                "MS-Author-Via": "DAV",
+                "Content-Type": "httpd/unix-directory",
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    async def browser_listing(self, request: web.Request, prefix: str) -> web.Response:
+        """Render a simple HTML listing for browser GET requests to a collection."""
+        prefix = prefix.strip("/")
+        if prefix:
+            prefix += "/"
+        result = await self.io(
+            self.s3.list_objects_v2,
+            Bucket=self.settings.bucket_name,
+            Prefix=prefix,
+            Delimiter="/",
+            MaxKeys=min(self.settings.max_propfind_items, 1000),
+        )
+        rows: list[str] = []
+        if prefix:
+            parent = prefix.rstrip("/").rsplit("/", 1)[0] if "/" in prefix.rstrip("/") else ""
+            parent_url = "/" + (parent + "/" if parent else "")
+            rows.append(
+                '<li class="folder"><a href="' + html.escape(parent_url, quote=True)
+                + '">📁 .. (parent directory)</a></li>'
+            )
+        for item in result.get("CommonPrefixes", []):
+            folder = item.get("Prefix", "")
+            name = folder[len(prefix):].rstrip("/")
+            href = "/" + folder
+            rows.append(
+                '<li class="folder"><a href="' + html.escape(href, quote=True)
+                + '">📁 ' + html.escape(name) + '/</a></li>'
+            )
+        for item in result.get("Contents", []):
+            object_key = item.get("Key", "")
+            if object_key == prefix or object_key.endswith("/"):
+                continue
+            name = object_key[len(prefix):]
+            href = "/" + object_key
+            size = int(item.get("Size", 0))
+            rows.append(
+                '<li class="file"><a href="' + html.escape(href, quote=True) + '">'
+                + '📄 ' + html.escape(name) + '</a><span>' + f'{size:,} bytes' + '</span></li>'
+            )
+        title = "/" + prefix
+        body = "\n".join(rows) if rows else '<li class="empty">This directory is empty.</li>'
+        page = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>
+body{{font:16px system-ui,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;color:#222}}
+h1{{font-size:1.35rem;overflow-wrap:anywhere}}ul{{list-style:none;padding:0}}
+li{{display:flex;gap:16px;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #ddd}}
+a{{color:#075ac8;text-decoration:none;overflow-wrap:anywhere}}a:hover{{text-decoration:underline}}
+span{{color:#666;white-space:nowrap;font-size:.9rem}}.empty{{color:#666}}
+small{{color:#666}}
+</style></head><body><h1>Cloudflare R2 WebDAV</h1>
+<p><small>Bucket: {html.escape(self.settings.bucket_name)} · Path: {html.escape(title)}</small></p>
+<ul>{body}</ul></body></html>"""
+        return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-store"})
+
     async def get_object(self, request: web.Request) -> web.StreamResponse:
         key, is_collection = self.key_from_request(request)
         if key == "" or is_collection:
-            raise web.HTTPMethodNotAllowed(request.method, ["OPTIONS", "PROPFIND", "MKCOL", "PUT", "DELETE"])
+            if request.method == "HEAD":
+                if key and not await self.path_exists(key, True):
+                    raise web.HTTPNotFound(text="Collection not found")
+                return self.collection_head_response()
+            return await self.browser_listing(request, key)
         try:
             meta = await self.io(self.s3.head_object, Bucket=self.settings.bucket_name, Key=key)
         except ClientError as exc:
