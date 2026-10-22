@@ -1,0 +1,19 @@
+services:
+  r2-sftp:
+    build:
+      context: .
+      dockerfile: Dockerfile.sftp
+    container_name: r2-sftp
+    restart: unless-stopped
+    env_file:
+      - .env.sftp
+    ports:
+      - "${SFTP_HOST_PORT:-2222}:2222"
+    volumes:
+      - sftp-host-key:/data
+      - sftp-tmp:/tmp/r2-sftp
+    stop_grace_period: 30s
+
+volumes:
+  sftp-host-key:
+  sftp-tmp:
