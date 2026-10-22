@@ -576,7 +576,7 @@ class R2SFTPInterface(paramiko.SFTPServerInterface):
                     return SFTP_FAILURE
                 if stat.S_ISDIR(dst_attr.st_mode):
                     # Do not replace a non-empty destination directory.
-                    if not self.rmdir("/" + dst):
+                    if self.rmdir("/" + dst) != SFTP_OK:
                         return SFTP_FAILURE
                 else:
                     self.s3.delete_object(Bucket=self.bucket, Key=dst)
