@@ -476,9 +476,27 @@ small{{color:#666}}
 <ul>{body}</ul></body></html>"""
         return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-store"})
 
+    def collection_head_response(self) -> web.Response:
+        """Answer collection HEAD probes without trying to stream a directory as a file."""
+        return web.Response(
+            status=200,
+            headers={
+                "Allow": ALLOW,
+                "DAV": "1, 2",
+                "MS-Author-Via": "DAV",
+                "Content-Type": "httpd/unix-directory",
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-store",
+            },
+        )
+
     async def get_object(self, request: web.Request) -> web.StreamResponse:
         key, is_collection = self.key_from_request(request)
         if key == "" or is_collection:
+            if request.method == "HEAD":
+                if key and not await self.path_exists(key, True):
+                    raise web.HTTPNotFound(text="Collection not found")
+                return self.collection_head_response()
             # Browsers issue GET, not WebDAV PROPFIND. Show a small authenticated
             # HTML listing for humans while keeping PROPFIND for WebDAV clients.
             return await self.browser_listing(request, key)
